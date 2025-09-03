@@ -1,0 +1,241 @@
+---
+title: "Tugas 2 IPM"
+output:
+  html_document: default
+  pdata_document: default
+  word_document: default
+---
+
+## Library/Packages
+
+```{r}
+library("forecast")
+library("graphics")
+library("TTR")
+library("TSA")
+```
+
+## Impor Data
+
+```{r}
+library(rio) #install packages jika belum ada
+data <- import("https://github.com/aldennabil/MPDW/raw/refs/heads/main/Pertemuan%202/IPM%20Magelang%2012-25.csv")
+
+# menampilkan 5 data pertama
+data
+```
+
+## Eksplorasi Data
+
+```{r}
+summary(data)
+```
+
+```{r}
+model = lm(IPM~Tahun, data=data)
+summary(model)
+```
+
+# Pengujian Asumsi
+
+## Uji Multikolinearitas
+
+```{r}
+# car::vif(model)
+```
+
+`Nilai VIF` pada setiap peubah penjelas \< 10. Artinya, tidak terjadi multikolinearitas pada peubah penjelas yang digunakan. Tapi tidak ada multikolinearitas karena peubah hanya dua
+
+## Sisaan menyebar normal
+
+```{r}
+#Dengan eksplorasi 
+plot(model,2);
+```
+
+Hasil QQ-Plot memperlihatkan bahwa titik-titik nya cenderung mengikuti garis kenormalan. Oleh karena itu, dapat disimpulkan bahwa sisaan menyebar normal.
+
+## Nilai harapan sisaan sama dengan nol
+
+```{r}
+# Uji t 
+t.test(resid(model), mu = 0,)
+```
+
+$p-value=1 > 0.1$ (tidak tolak $H_0$) Artinya: Nilai harapan sisaan sama dengan nol
+
+## Ragam sisaan homogen
+
+```{r}
+# Uji Breusch-Pagan 
+lmtest::bptest(model)
+```
+
+$p-value > 0.1$ (tidak tolak $H_0$) Artinya: Ragam sisaan homogen
+
+## Antar sisaan tidak saling berkorelasi (tidak terjadi autokorelasi)
+
+```{r}
+# Uji Durbin Watson 
+library(lmtest) 
+dwtest(model)   
+#ACF dan PACF identifikasi autokorelasi 
+sisaan = model$residuals 
+par(mfrow = c(1,2)) 
+acf(sisaan) 
+pacf(sisaan) 
+```
+
+$p-value=0.00<0.1$ (tolak $H_0$) Artinya: Terjadi autkoorelasi pada sisaan pada taraf `5%`
+
+Selain dari itu, plot ACF juga memperlihatkan adanya autokorelasi. Oleh karena itu, diperlukan penanganan untuk hal tersebut. Terdapat 2 metode yang akan dicobakan: 1. Cochrane-Orcutt 2. Hildreth-Lu
+
+### Metode Cochrane-Orcutt
+
+Penanganan metode Cochrane-Orcutt dapat dilakukan dengan bantuan packages Orcutt pada aplikasi `R` maupun secara manual. Berikut ini ditampilkan cara menggunakan bantuan `library` *packages* `Orcutt`.
+
+```{r}
+#Penanganan Autokorelasi Cochrane-Orcutt dengan Packages Orcutt 
+library(orcutt) 
+modelCO<-cochrane.orcutt(model) 
+modelCO
+```
+
+Hasil keluaran model setelah dilakukan penanganan adalah sebagai berikut. $$y_i=-1046.397302-0.552621Tahun_i$$ Hasil juga menunjukkan bahwanilai DW dan p-value meningkat. Nilai DW sudah berada pada rentang DU \< DW \< 4-DU.Hal tersebut juga didukung dengan nilai *p-value* \> 0.05, artinya belum cukup bukti menyatakan bahwa terdapat autokorelasi pada sisaan pada taraf nyata 5%. Untuk nilai $ρ ̂$ optimum yang digunakan adalah $0.671767$.
+
+Selanjutnya akan dilakukan penghitungan secara manual
+
+```{r}
+#Rho optimum 
+rho<- modelCO$rho 
+rho
+```
+
+Selanjutnya akan dilakukan transformasi secara manual dengan syntax berikut ini.
+
+```{r}
+#Transformasi Manual
+#tanpa data pertama - tanpa data terakhir
+IPM.trans <- data$IPM[-1]-data$IPM[-12]*rho 
+Tahun.trans <- data$Tahun[-1]-data$Tahun[-12]*rho
+
+#Membentuk model dengan peubah yang sudah ditransformasi
+modelCOmanual<- lm(IPM.trans~Tahun.trans)
+summary(modelCOmanual)
+```
+
+Hasil model transformasi bukan merupakan model sesungguhnya. Koefisien regresi masih perlu dicari kembali mengikuti $β_0^*=β_0+ρ ̂β_0$, $β_1^*=β_1$
+
+```{r}
+#Mencari Penduga Koefisien Regresi setelah Transformasi ke Persamaan Awal
+#b0 bintang = menghapus koefisien b1,b2,b3 dari model
+b0bintang <- modelCOmanual$coefficients[-c(2,3,4)]
+b0 <- b0bintang/(1-rho)
+
+#b1 = menghapus koefisien b0,b2,b3 dari model
+b1 <- modelCOmanual$coefficients[-c(1,3,4)]
+
+b0;b1
+```
+
+Hasil perhitungan secara manual maupun dengan package menghasilkan kesimpulan yang sama.
+
+### Metode Hildreth-Lu
+
+Penanganan kedua adalah menggunakan metode Hildreth-Lu. Metode ini akan mencari nilai SSE terkecil dan dapat dicari secara manual maupun menggunakan packages. Jika menggunakan packages, gunakan `library` *packages* `HORM`.
+
+```{r}
+#Penanganan Autokorelasi Hildreth lu
+# Hildreth-Lu
+hildreth.lu.func<- function(r, model){
+  x1 <- model.matrix(model)[,2]
+  
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t]-r*y[t-1]
+  x1 <- x1[t]-r*x1[t-1]
+  
+  
+  return(lm(y~x1))
+}
+
+#Pencariab rho yang meminimumkan SSE
+r <- c(seq(0.1,0.9, by= 0.1))
+tab <- data.frame("rho" = r, "SSE" = sapply(r, function(i){deviance(hildreth.lu.func(i, model))}))
+round(tab, 4)
+```
+
+Pertama-tama akan dicari di mana kira-kira $ρ$ yang menghasilkan SSE minimum. Pada hasil di atas terlihat $ρ$ minimum ketika 0.7. Namun, hasil tersebut masih kurang teliti sehingga akan dicari kembali $ρ$ yang lebih optimum dengan ketelitian yang lebih. Jika sebelumnya jarak antar $ρ$ yang dicari adalah 0.1, kali ini jarak antar $ρ$ adalah 0.001 dan dilakukan pada selang 0.6 sampai dengan 0.7.
+
+```{r}
+#Rho optimal di sekitar 0.7
+rOpt <- seq(0.6,0.7, by= 0.001)
+tabOpt <- data.frame("rho" = rOpt, "SSE" = sapply(rOpt, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+
+#Grafik SSE optimum
+par(mfrow = c(1,1))
+plot(tab$SSE ~ tab$rho , type = "l", xlab = "Rho", ylab = "SSE")
+abline(v = tabOpt[tabOpt$SSE==min(tabOpt$SSE),"rho"], lty = 2, col="red",lwd=2)
+text(x=0.672, y=7.905986, labels = "rho=0.461", cex = 0.8)
+```
+
+Perhitungan yang dilakukan aplikasi `R` menunjukkan bahwa nilai $ρ$ optimum, yaitu saat SSE terkecil terdapat pada nilai $ρ=0.672$. Hal tersebut juga ditunjukkan pada plot. Selanjutnya, model dapat didapatkan dengan mengevaluasi nilai $ρ$ ke dalam fungsi `hildreth.lu.func`, serta dilanjutkan dengan pengujian autokorelasi dengan uji Durbin-Watson. Namun, setelah pengecekan tersebut tidak lupa koefisien regresi tersebut digunakan untuk transformasi balik. Persamaan hasil transformasi itulah yang menjadi persamaan sesungguhnya.
+
+```{r}
+#Model terbaik
+modelHL <- hildreth.lu.func(0.672, model)
+summary(modelHL)
+
+#Transformasi Balik
+cat("y = ", coef(modelHL)[1]/(1-0.672), "+", coef(modelHL)[2],"x", sep = "")
+```
+
+Setelah dilakukan tranformasi balik, didapatkan model dengan metode Hildreth-Lu sebagai berikut. $$y_i=-1046.23-0.5525379x_i$$
+
+```{r}
+#Deteksi autokorelasi
+dwtest(modelHL)
+```
+
+Hasil uji Durbin-Watson juga menunjukkan bawah nilai DW sebesar $1.7152$ berada pada selang daerah tidak ada autokorelasi, yaitu pada rentang DU \< DW \< 4-DU. Hal tersebut juga didukung oleh *p-value* sebesar $1.7152$, di mana *p-value* \> $\alpha$=5%. Artinya tak tolak $H_0$ atau belum cukup bukti menyatakan bahwa ada autokorelasi dalam data nilai IPM dengan metode Hildreth-Lu pada taraf nyata 5%.
+
+Terakhir, akan dibandingkan nilai SSE dari ketiga metode (metode awal, metode Cochrane-Orcutt, dan Hildreth-Lu).
+
+```{r}
+#Perbandingan
+sseModelawal <- anova(model)$`Sum Sq`[-c(1)]
+sseModelCO <- anova(modelCOmanual)$`Sum Sq`[-c(1)]
+sseModelHL <- anova(modelHL)$`Sum Sq`[-c(1)]
+mseModelawal <- sseModelawal/length(data$IPM)
+mseModelCO <- sseModelCO/length(data$IPM)
+mseModelHL <- sseModelHL/length(data$IPM)
+akurasi <- matrix(c(sseModelawal,sseModelCO,sseModelHL,
+                    mseModelawal,mseModelCO,mseModelHL),nrow=2,ncol=3,byrow = T)
+colnames(akurasi) <- c("Model_Awal", "Model_Cochrane-Orcutt", "Model_Hildreth-Lu")
+row.names(akurasi) <- c("SSE","MSE")
+akurasi
+```
+
+Hasil penanganan autokorelasi dengan metode Cochrane-Orcutt dan Hildreth-Lu memiliki nilai `SSE` sebesar $1.7827254$. Jauh lebih rendah dibandingkan model awal dengan SSE sebesar $3.5036940$ Hal ini menunjukkan bahwa model setelah penanganan lebih baik dibandingkan model awal ketika autokorelasi masih terjadi.
+
+Kesimpulan: Pada data yang digunakan, metode Cochrane-Orcutt dan Hildreth-Lu terbukti efektif dalam menangani autokorelasi.
+
+```{r}
+# Menghitung SSE untuk setiap model secara manual
+sse_awal <- sum(residuals(model)^2)
+sse_co <- sum(residuals(modelCOmanual)^2)
+sse_hl <- sum(residuals(modelHL)^2)
+
+# Membuat tabel perbandingan
+data.frame(
+  Metode = c("Model Awal", "Cochrane-Orcutt", "Hildreth-Lu"),
+  SSE = c(sse_awal, sse_co, sse_hl),
+  DW_Statistic = c(dwtest(model)$statistic, dwtest(modelCO)$statistic, dwtest(modelHL)$statistic),
+  P_Value = c(dwtest(model)$p.value  , dwtest(modelCO)$p.value , dwtest(modelHL)$p.value)
+)
+
+```
+
+Terbukti secara P-Value bahwa model dengan penanganan Autokorelasi Cochrane-Orcutt maupun Hildreth-Lu dapat menangan autokorelasi pada data IPM Magelang 2012-2025
