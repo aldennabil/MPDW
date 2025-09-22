@@ -1,0 +1,454 @@
+---
+title: "G1401231088_Alden Nabil Wibowo Effedy_Tugas 4"
+author: "Aldennabil"
+date: "2025-09-19"
+output: 
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    toc_depth: 3
+---
+
+# Pembangkitan White Noise
+
+Pembangkitan data deret waktu diawali pembangkitan *white noise*. *White noise* merupakan sederet nilai dari peubah bebas stokastik identik. Oleh karena itu, *white noise* memiliki dua karakteristik penting:
+
+1.  *White noise* tidak memiliki autokorelasi (**karena saling bebas**)
+2.  Nilai harapan dan ragam *white noise* sama (**karena berasal dari peubah acak bebas stokastik identik**)
+
+*Akan dibangkitkan White noise* dari peubah acak normal.
+
+```{r}
+set.seed(1234)
+wn <- rnorm(300)
+ts.plot(wn)
+```
+
+# Model MA(2) $𝜃_1$=0.4, $𝜃_2$=0.6
+
+## Pembangkitan Model
+
+## Manual
+
+```{r}
+# Bangkitkan MA(2)
+ma <- wn
+for(i in 3:300){
+   ma[i] <- wn[i] + 0.4 * wn[i - 1] + 0.6 * wn[i - 2]
+}
+```
+
+### Arima.Sim
+
+```{r}
+ma2 <- arima.sim(list(order=c(0,0,2), ma=c(0.4, 0.6)), n=300)
+```
+
+### Perbandingan
+
+```{r}
+compare_ma <- data.frame(
+  Manual = ma,
+  Sim = ma2
+)
+compare_ma
+```
+
+## Plot eksplorasi
+
+### Plot Time Series
+
+```{r}
+par(mfrow = c(1, 2))
+ts.plot(ma, main="MA Manual")
+ts.plot(ma2, main="MA arima.sim")
+```
+
+### Identifikasi Stasioneritas
+
+```{r}
+theta <- c(0.4, 0.6)
+# Cek akar MA (invertibel jika semua modulus > 1)
+Mod(polyroot(c(1,  theta))) # akar polinom MA: 1 + 0.4 z + 0.6 z^2 = 0
+```
+
+Berdasarkan plot time series dan identifikasi stasioneritas, terlihat bahwa data MA(2) yang dibangkitkan stasioner dalam rataan
+
+### Plot ACF, PACF, EACF
+
+```{r}
+par(mfrow = c(1, 2))
+acf(ma, lag.max = 20, main = "ACF MA")
+acf(ma2, lag.max = 20, main = "ACF MA arima.sim")
+
+```
+
+```{r}
+par(mfrow = c(1, 2))
+pacf(ma, lag.max = 20, main = "PACF MA")
+pacf(ma2, lag.max = 20, main = "PACF MA arima.sim")
+```
+
+```{r}
+TSA::eacf(ma)
+TSA::eacf(ma2)
+```
+
+Berdasarkan grafik, model $MA(2)$ :
+
+-   ACF: *Tails off* pada *lag* 2
+
+-   PACF: *Cut off* pada *lag* 2
+
+-   EACF: segitiga nol berada pada ordo $AR(0)$ dan ordo $MA(2)$
+
+    Kesimpulan: Model susah sesuai dengan karakteristik $MA(2)$
+
+## Scatterplot AntarLag
+
+```{r}
+#Yt
+yt_ma <- ma[-1]
+#Yt-1
+yt_1_ma <- ma[-300]
+plot(y=yt_ma,x=yt_1_ma, xlab = "Yt-1", ylab = "Yt")
+cor(yt_ma,yt_1_ma)
+```
+
+```{r}
+#Yt
+yt_ma2 <- ma[-c(1,2)]
+#Yt-2
+yt_2_ma <- ma[-c(299,300)]
+plot(y=yt_ma2,x=yt_2_ma, xlab = "Yt-2", ylab = "Yt")
+cor(yt_ma2,yt_2_ma)
+```
+
+```{r}
+#Yt
+yt_ma3 <- ma[-c(1,2,3)]
+#Yt-3
+yt_3_ma <- ma[-c(298,299,300)]
+plot(y=yt_ma3,x=yt_3_ma, xlab = "Yt-3", ylab = "Yt")
+cor(yt_ma3,yt_3_ma)
+```
+
+## Autokorelasi
+
+• Hitung autokorelasi masing masing baik dari data bangkitan maupun secara teoriti
+
+### ACF Bangkitan
+
+```{r}
+## ACF empiris pakai acf() (langsung dapat semua lag sekaligus)
+L <- 3  # banyak lag yang ingin dilihat
+acf_ma  <- drop(acf(ma,  lag.max = L, plot = FALSE)$acf)   # untuk 'ma' (manual)
+acf_ma2 <- drop(acf(ma2, lag.max = L, plot = FALSE)$acf)   # untuk 'ma2' (arima.sim)
+
+acf_ma
+acf_ma2
+```
+
+### ACF Teoritis
+
+```{r}
+theo_acf <- ARMAacf(ma = c(0.4, 0.6), lag.max = 5)  # termasuk lag 0
+theo_acf[1:L+1]  # lihat beberapa lag awal: 0..5
+```
+
+### Perbandingan
+
+```{r}
+emp_ma  <- drop(acf(ma,  lag.max = L, plot = FALSE)$acf)
+emp_ma2 <- drop(acf(ma2, lag.max = L, plot = FALSE)$acf)
+theo    <- ARMAacf(ma = c(0.4, 0.6), lag.max = L)
+
+compare_df <- data.frame(
+  Lag              = 0:L,
+  Empirical_manual = round(emp_ma,  6),
+  Empirical_sim    = round(emp_ma2, 6),
+  Theoretical      = round(theo,     6)
+)
+print(compare_df, row.names = FALSE)
+```
+
+Baik model $manual$ maupun $arima.sim$ mereplikasi ACF teoretis. $arima.sim$ lebih dekat kepada teori
+
+# Model AR(2) $𝜙_1$=0.5, $𝜙_2$=0.2
+
+## Pembangkitan Model
+
+### Manual
+
+```{r}
+# Bangkitkan AR(2)
+ar <- wn
+for(i in 3:300){
+   ar[i] <- wn[i] + 0.5 * ar[i - 1] + 0.2 * ar[i - 2]
+}
+summary(ar)
+```
+
+### Arima.Sim
+
+```{r}
+ar2 <- arima.sim(list(order=c(2,0,0), ar=c(0.5, 0.2)), n=300)
+summary(ar2)
+```
+
+### Perbandingan
+
+```{r}
+compare_ar <- data.frame(   
+  Manual = ar,   Sim = ar2)
+compare_ar
+```
+
+## Plot eksplorasi
+
+### Plot Time Series
+
+```{r}
+par(mfrow = c(1, 2))
+ts.plot(ar, main="AR Manual")
+ts.plot(ar2, main="AR arima.sim")
+```
+
+### Identifikasi Stasioneritas
+
+```{r}
+phi   <- c(0.5, 0.2)  
+# Cek akar AR (stasioner jika semua modulus > 1) 
+Mod(polyroot(c(1, -phi)))   # akar polinom AR: 1 - 0.5 z - 0.2 z^2 = 0 # (b) Cek akar MA 
+```
+
+Berdasarkan plot time series dan identifikasi stasioneritas, terlihat bahwa data AR(2) yang dibangkitkan stasioner dalam rataan
+
+### Plot ACF, PACF, EACF
+
+```{r}
+par(mfrow = c(1, 2))
+acf(ar, lag.max = 20, main = "ACF AR")
+acf(ar2, lag.max = 20, main = "ACF AR arima.sim")
+```
+
+```{r}
+par(mfrow = c(1, 2))
+pacf(ar, lag.max = 20, main = "PACF AR")
+pacf(ar2, lag.max = 20, main = "PACF AR arima.sim")
+```
+
+```{r}
+TSA::eacf(ar)
+TSA::eacf(ar2)
+```
+
+Berdasarkan grafik, model $MA(2)$ :
+
+-   ACF: *Tails off* sangat jauh (di 7) sehingga tidak dapat disimpulkan
+
+-   PACF: *Cut off* pada *lag* 2
+
+-   EACF: Secara teori, segitiga nol berada pada ordo $AR(2)$ dan ordo $MA(0)$. Tetapi hal ini tidak terlalu terlihat pada arima.sim dan lebih jelas pada pembangkitan manual meskipun pada ordo 2,0 bersimbol $o$
+
+    Kesimpulan: Model sudah sesuai dengan karakteristik $AR(2)$
+
+## Scatterplot AntarLag
+
+```{r}
+#Yt
+yt_ar <- ar[-1]
+#Yt-1
+yt_1_ar <- ar[-300]
+plot(y=yt_ar,x=yt_1_ar, xlab = "Yt-1", ylab = "Yt")
+cor(yt_ar,yt_1_ar)
+```
+
+```{r}
+#Yt
+yt_ar2 <- ar[-c(1,2)]
+#Yt-2
+yt_2_ar <- ar[-c(299,300)]
+plot(y=yt_ar2,x=yt_2_ar, xlab = "Yt-2", ylab = "Yt")
+cor(yt_ar2,yt_2_ar)
+```
+
+```{r}
+#Yt
+yt_ar3 <- ar[-c(1,2,3)]
+#Yt-3
+yt_3_ar <- ar[-c(298,299,300)]
+plot(y=yt_ar3,x=yt_3_ar, xlab = "Yt-3", ylab = "Yt")
+cor(yt_ar3,yt_3_ar)
+```
+
+## Autokorelasi
+
+### ACF Bangkitan
+
+```{r}
+L <- 3  
+# banyak lag yang ingin dilihat 
+acf_ar  <- drop(acf(ar,  lag.max = L, plot = FALSE)$acf)   
+acf_ar2 <- drop(acf(ar2, lag.max = L, plot = FALSE)$acf)   
+```
+
+### ACF Teoritis
+
+```{r}
+theo_acf <- ARMAacf(ar = c(0.5, 0.2), lag.max = 3)  
+```
+
+### Perbandingan
+
+```{r}
+compare_ar <- data.frame(   
+  Lag              = 0:L,   
+  Empirical_manual = acf_ar,  
+  Empirical_sim    = acf_ar2,
+  Theoretical      = theo_acf
+)
+print(compare_ar, row.names = FALSE)
+```
+
+Baik model $manual$ maupun $arima.sim$ mereplikasi ACF teoretis. $arima.sim$ lebih dekat kepada teori
+
+# Model ARMA(2,2) $𝜃_1$=0.4, $𝜃_2$=0.6, $𝜙_1$=0.5, $𝜙_2$=0.2
+
+## Pembangkitan Model
+
+### Manual
+
+```{r}
+arma <- c(1:300)
+for(i in 3:300){
+   arma[i] <- 0.5 * arma[i-1] + 0.2 * arma[i-2] + wn[i] + 0.4 * wn[i-1] + 0.6 * wn[i-2]
+}
+
+
+```
+
+### Arima.Sim
+
+```{r}
+arma2 <- arima.sim(list(order=c(2,0,2), ar = c(0.5, 0.2), ma = c(0.4, 0.6)), n=300)
+```
+
+### Perbandingan
+
+```{r}
+compare_arma <- data.frame(   
+  Manual = arma,   
+  Sim = arma2
+)
+compare_arma
+```
+
+## Plot eksplorasi
+
+### Plot Time Series
+
+```{r}
+par(mfrow = c(1, 2))
+ts.plot(arma, main="ARMA Manual")
+ts.plot(arma2, main="ARMA arima.sim")
+```
+
+### Identifikasi Stasioneritas
+
+```{r}
+# (a) Cek akar AR (stasioner jika semua modulus > 1)
+Mod(polyroot(c(1, -phi)))   # akar polinom AR: 1 - 0.5 z - 0.2 z^2 = 0
+# (b) Cek akar MA (invertibel jika semua modulus > 1)
+Mod(polyroot(c(1,  theta))) # akar polinom MA: 1 + 0.4 z + 0.6 z^2 = 0
+
+```
+
+Berdasarkan plot time series dan identifikasi stasioneritas, terlihat bahwa data ARMA(2) yang dibangkitkan stasioner dalam rataan
+
+### Plot ACF, PACF, EACF
+
+```{r}
+acf(arma, lag.max = 20, main = "ACF ARMA")
+acf(arma2, lag.max = 20, main = "ACF ARMA dengan arima.sim")
+```
+
+```{r}
+pacf(arma, lag.max = 20, main = "PACF ARMA")
+pacf(arma2, lag.max = 20, main = "PACF ARMA dengan arima.sim")
+```
+
+```{r}
+TSA::eacf(arma)
+TSA::eacf(arma2)
+```
+
+Berdasarkan grafik, model $ARMA(2,2)$ :
+
+-   ACF: *Tails off* pada *lag* 8 untuk manual dan *lag* 11 untuk manual
+
+-   PACF: *Cut off* pada *lag* 1 untuk manual dan *lag* 2 untuk arimasim
+
+-   EACF: segitiga nol berada pada ordo $AR(2)$ dan ordo $MA(2)$ untuk arima dan $AR(1)$ dan ordo $MA(2)$ untuk arima.sim
+
+    Kesimpulan: Analisis plot masih belum sesuai dengan karakteristik $ARMA(2,2)$
+
+## Scatterplot AntarLag
+
+```{r}
+#Yt
+yt_arma <- arma[-1]
+#Yt-1
+yt_1_arma <- arma[-300]
+plot(y=yt_arma,x=yt_1_arma, xlab = "Yt-1", ylab = "Yt")
+cor(yt_arma,yt_1_arma)
+```
+
+```{r}
+#Yt
+yt_arma2 <- arma[-c(1,2)]
+#Yt-2
+yt_2_arma <- arma[-c(299,300)]
+plot(y=yt_arma2,x=yt_2_arma, , xlab = "Yt-2", ylab = "Yt")
+cor(yt_arma2,yt_2_arma)
+```
+
+```{r}
+#Yt
+yt_arma3 <- arma[-c(1,2,3)]
+#Yt-3
+yt_3_arma <- arma[-c(298,299,300)]
+plot(y=yt_arma3,x=yt_3_arma, xlab = "Yt-3", ylab = "Yt")
+cor(yt_arma3,yt_3_arma)
+```
+
+## Autokorelasi
+
+### ACF Bangkitan
+
+```{r}
+L <- 3   # banyak lag yang ingin dilihat  
+acf_ar  <- drop(acf(ar,  lag.max = L, plot = FALSE)$acf)    
+acf_ar2 <- drop(acf(ar2, lag.max = L, plot = FALSE)$acf)   
+```
+
+### ACF Teoritis
+
+```{r}
+theo_acf_arma <- ARMAacf(ar = c(0.5, 0.2), ma = c(0.4,0.6), (lag.max = 3))
+theo_acf_arma
+```
+
+### Perbandingan
+
+```{r}
+compare_ar <- data.frame(      
+  Lag              = 0:L,      
+  Empirical_manual = acf_ar,     
+  Empirical_sim    = acf_ar2,   
+  Theoretical      = theo_acf_arma) 
+print(compare_ar, row.names = FALSE)
+```
+
+Baik model $manual$ maupun $arima.sim$ mereplikasi ACF teoretis. $manual$ lebih dekat kepada teori
