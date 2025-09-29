@@ -1,0 +1,220 @@
+---
+title: "Tugas Mengecek Stasioneritas Data"
+author: "Aldennabil"
+date: "2025-09-29"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+```
+
+# Input Data
+
+```{r}
+library(rio)
+csv <- rio::import("https://github.com/aldennabil/MPDW/raw/refs/heads/main/Kurs%20Jual%20Rataan%20USD%20Fix.xlsx")
+dataset <- csv[313:415,2]
+str(dataset) # Time = 1, Data = 2
+```
+
+```{r}
+data <- ts(as.numeric(dataset), start = 1, frequency = 1)  # atau start=c(2024,1), frequency=52 untuk mingguan
+tibble <- as_tibble(dataset)
+data
+```
+
+## Plot *Time Series*
+
+```{r}
+plot_data <- data |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+plot_data
+mean(data)
+```
+
+Berdasarkan plot time series tersebut, terlihat bahwa data tidak stasioner dalam rataan karena terdapat tren dengan lebar pita bervariasi yang menandakan tidak stasioner dalam ragam juga.
+
+```{r}
+lattice::densityplot(as.vector(data))
+```
+
+## Plot ACF
+
+```{r}
+acf(data)
+```
+
+Berdasarkan plot ACF, terlihat bahwa plot ACF pada data tersebut menurun secara perlahan (*tails off slowly*) yang menandakan data tidak stasioner dalam rataan
+
+## Uji ADF
+
+```{r}
+tseries::adf.test(data)
+```
+
+$H_0$ : Data tidak stasioner dalam rataan
+
+$H_1$ : Data stasioner dalam rataan
+
+Berdasarkan uji ADF tersebut, didapat *p-value* sebesar $0.5887$ yang lebih besar dari taraf nyata 5% dan menandakan bahwa data tidak stasioner dalam rataan. Hal ini sesuai dengan hasil eksplorasi menggunakan plot time series dan plot ACF
+
+## Partisi Data
+
+Partisi data adalah memecah deret waktu menjadi beberapa sub-periode yang lebih homogen (sering disebut piecewise stationary).
+
+-   **Tujuan utama:**
+
+    1.  **Diagnosa**: membedakan non-stasioner karena **unit root** vs **structural break** dengan melihat plot/ACF/ADF per bagian.
+
+    2.  **Pemodelan**: memungkinkan model **per-rezim** atau penambahan **dummy step/pulse/tren** pada titik patah, sehingga parameter tidak “tercampur” antar rezim.
+
+    3.  **Transformasi**: menilai kebutuhan **log/Box-Cox** dan **differencing** berdasarkan ragam & level lokal.
+
+    4.  **Validasi**: mengecek kestabilan parameter dan performa antar bagian sebelum memutuskan model global terbaik.
+
+### Deteksi Partisi
+
+```{r}
+library(changepoint)
+
+y <- as.numeric(data)  # vektor nilai
+
+cp <- cpt.meanvar(
+  y,
+  method   = "PELT",
+  penalty  = "MBIC",                  # hemat jumlah break
+  minseglen = 8                       # ≥ 8–12 utk mingguan
+)
+
+cpts(cp)      # indeks break
+plot(cp)      # plot data + step mean
+
+```
+
+Berdasarkan deteksi tersebut, kita bisa partisi data 34,49,72,84,95. Tapi karena data kita kecil, maka akan seleksi partisi manual menjadi 1-49, 50-80, 81-103.
+
+### Bagian 1
+
+```{r}
+data1 <- data[1:49] |> ts()
+mean(data1)
+var(data1)
+```
+
+#### Plot Time Series
+
+```{r}
+data1 |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) +
+  geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+```
+
+Berdasarkan plot time series tersebut, terlihat bahwa data tidak stasioner dalam rataan dengan lebar pita bervariasi yang menandakan tidak stasioner dalam ragam juga.
+
+#### Plot ACF
+
+```{r}
+acf(data1)
+```
+
+Berdasarkan plot ACF, terlihat bahwa plot ACF pada data tersebut menurun secara (*tails off*) yang menandakan data tidak stasioner dalam rataan dan membentuk pola kosinus
+
+#### Uji ADF
+
+```{r}
+adf.test(data1)
+```
+
+$H_0$ : Data tidak stasioner dalam rataan
+
+$H_1$ : Data stasioner dalam rataan
+
+Berdasarkan uji ADF tersebut, didapat *p-value* sebesar $0.65$ yang lebih besar dari taraf nyata 5% dan menandakan bahwa data tidak stasioner dalam rataan. Hal ini sesuai dengan hasil eksplorasi menggunakan plot time series dan plot ACF
+
+### Bagian 2
+
+```{r}
+data2 <- data[50:80] |> ts()
+mean(data2)
+var(data2)
+```
+
+#### Plot Time Series
+
+```{r}
+data2 |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) +
+  geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+```
+
+Berdasarkan plot time series tersebut, terlihat bahwa data yang tidak stasioner, dan tidak stasioner dalam ragam karena memiliki lebar pita yang cenderung tidak sama/bervariasi
+
+#### Plot ACF
+
+```{r}
+acf(data2)
+```
+
+Berdasarkan plot ACF, terlihat bahwa plot ACF pada data tersebut *tails off* yang menunjukkan data tidak stasioner dalam rataan
+
+#### Uji ADF
+
+```{r}
+adf.test(data2)
+```
+
+$H_0$ : Data tidak stasioner dalam rataan
+
+$H_1$ : Data stasioner dalam rataan
+
+Berdasarkan uji ADF tersebut, didapat *p-value* sebesar $0.3841$ yang lebih besar dari taraf nyata 5% dan menandakan bahwa data tidak stasioner dalam rataan. Hal ini sesuai dengan hasil eksplorasi menggunakan plot time series dan plot ACF
+
+```{r}
+data3 <- data[81:103] |> ts()
+mean(data3)
+var(data3)
+```
+
+#### Plot Time Series
+
+```{r}
+data3 |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) +
+  geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+```
+
+Berdasarkan plot time series tersebut, terlihat bahwa data tidak stasioner dalam rataan karena masih terdapat tren pada data, namun cenderung stasioner dalam ragam karena memiliki lebar pita yang mungkin sama
+
+#### Plot ACF
+
+```{r}
+acf(data3)
+```
+
+Berdasarkan plot ACF, terlihat bahwa plot ACF pada data tersebut menurun (*tails off*) yang menandakan data tidak stasioner dalam rataan serta membentuk pola kosinus
+
+#### Uji ADF
+
+```{r}
+adf.test(data3)
+```
+
+$H_0$ : Data tidak stasioner dalam rataan
+
+$H_1$ : Data stasioner dalam rataan
+
+Berdasarkan uji ADF tersebut, didapat *p-value* sebesar $0.1511$ yang lebih besar dari taraf nyata 5% dan menandakan bahwa data tidak stasioner dalam rataan. Hal ini tidak sesuai dengan hasil eksplorasi menggunakan plot time series dan plot ACF
+
+## Kesimpulan
+
+-   Secara keseluruhan, berdasarkan plot eksplorasi dan uji ADF, data tidak stasioner dalam rataan karena terdapat tren dengan lebar pita bervariasi yang menandakan tidak stasioner dalam ragam juga.
+
+-   Dilakukan Partisi dengan break pada data (34 49 72 84 95) untuk mencari apakah di dalam data tersebut ada stasioneritas pada sub-periode. Hasilnya semua sub-periode terbukti secara ADF tidak stasioner dalam rataan dan secara plot tidak stasioner pada ragam.
